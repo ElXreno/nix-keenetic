@@ -106,6 +106,12 @@ in
       };
     };
 
+    build.bootShell = mkOption {
+      type = types.package;
+      internal = true;
+      description = "Shell as a regular file, the only kind of interpreter KeeneticOS accepts for scripts it runs itself.";
+    };
+
     build.bootstrap = mkOption {
       type = types.package;
       internal = true;
@@ -139,6 +145,7 @@ in
       mv -f /etc/initrc.new /etc/initrc
     '';
 
+    build.bootShell = bootShell;
     build.bootstrap = bootstrap;
 
     build.toplevel =
