@@ -8,18 +8,45 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: check-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  check:
+  eval:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      any-jobs: ${{ steps.matrix.outputs.any-jobs }}
+      manifest-version: ${{ steps.matrix.outputs.manifest-version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # v31.11.5
+      - uses: Mic92/hestia@dfed9ced335d28978ba74e513939a10db1f71025 # v3.1.0
+      - id: matrix
+        uses: Mic92/hestia/matrix@dfed9ced335d28978ba74e513939a10db1f71025 # v3.1.0
+        with:
+          flake: ".#checks.x86_64-linux"
+
+  build:
+    needs: eval
+    if: needs.eval.outputs.any-jobs == 'true'
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.eval.outputs.matrix) }}
+    steps:
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # v31.11.5
       # from NixOS/nix ci.yml, see https://github.com/NixOS/nix/commit/1c63dc254d
       - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      - run: nix flake check -L
+      - uses: Mic92/hestia@dfed9ced335d28978ba74e513939a10db1f71025 # v3.1.0
+        with:
+          wait-manifest-version: ${{ needs.eval.outputs.manifest-version }}
+      - name: Prefetch the derivation closure
+        run: '"$HESTIA_BIN" prefetch ${{ matrix.installables }}'
+      - run: nix build -L ${{ matrix.installables }}
