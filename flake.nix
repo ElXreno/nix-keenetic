@@ -51,6 +51,11 @@
             inherit image;
             emulator = self.packages.${buildPlatform}.emulator-generic;
           };
+          deploy = pkgs.callPackage ./tests/deploy.nix {
+            inherit buildPlatform;
+            inherit (self.lib) keeneticSystem;
+            emulator = self.packages.${buildPlatform}.emulator-generic;
+          };
         }
       );
 
