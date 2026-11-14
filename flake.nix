@@ -25,6 +25,11 @@
 
       keeneticModules.default = ./modules;
 
+      templates.default = {
+        path = ./templates/default;
+        description = "Nix userspace for one Keenetic router: image and deploy script";
+      };
+
       packages = forBuildPlatforms (buildPlatform: {
         emulator = emulatorFor buildPlatform true;
         emulator-generic = emulatorFor buildPlatform false;
