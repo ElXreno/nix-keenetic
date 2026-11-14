@@ -12,11 +12,23 @@
         "aarch64-linux"
       ];
       forBuildPlatforms = lib.genAttrs buildPlatforms;
+
+      emulatorFor =
+        system: withStockLike:
+        (import ./emulator {
+          inherit system withStockLike;
+          nixpkgs = nixpkgs.outPath;
+        }).default;
     in
     {
       lib.keeneticSystem = import ./lib/eval.nix { inherit nixpkgs; };
 
       keeneticModules.default = ./modules;
+
+      packages = forBuildPlatforms (buildPlatform: {
+        emulator = emulatorFor buildPlatform true;
+        emulator-generic = emulatorFor buildPlatform false;
+      });
 
       checks = forBuildPlatforms (
         buildPlatform:
@@ -26,9 +38,14 @@
             inherit buildPlatform;
             modules = [ ./tests/minimal.nix ];
           };
+          inherit (minimal.config.build) image;
         in
         {
-          minimal-image = pkgs.callPackage ./tests/image.nix { inherit (minimal.config.build) image; };
+          minimal-image = pkgs.callPackage ./tests/image.nix { inherit image; };
+          emulator-boot = pkgs.callPackage ./tests/emulator.nix {
+            inherit image;
+            emulator = self.packages.${buildPlatform}.emulator-generic;
+          };
         }
       );
 
