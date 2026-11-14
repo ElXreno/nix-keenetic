@@ -10,6 +10,7 @@ let
     concatMapStrings
     concatStrings
     escapeShellArg
+    getBin
     mapAttrsToList
     mkBefore
     mkDefault
@@ -98,17 +99,19 @@ in
       ${config.environment.profileExtra}
     '';
 
-    build.path = buildPackages.runCommand "keenetic-path" { paths = config.environment.packages; } ''
-      mkdir -p $out/bin
-      for package in $paths; do
-        for directory in bin sbin; do
-          [ -d "$package/$directory" ] || continue
-          for file in "$package/$directory"/*; do
-            [ -e "$out/bin/$(basename "$file")" ] || ln -s "$file" $out/bin/
+    build.path =
+      buildPackages.runCommand "keenetic-path" { paths = map getBin config.environment.packages; }
+        ''
+          mkdir -p $out/bin
+          for package in $paths; do
+            for directory in bin sbin; do
+              [ -d "$package/$directory" ] || continue
+              for file in "$package/$directory"/*; do
+                [ -e "$out/bin/$(basename "$file")" ] || ln -s "$file" $out/bin/
+              done
+            done
           done
-        done
-      done
-    '';
+        '';
 
     build.etc = buildPackages.runCommand "keenetic-etc" { } ''
       mkdir -p $out

@@ -36,8 +36,9 @@ let
     #!${shell}
     export PATH=@out@/sw/bin
     current=$(readlink -f ${profile})
-    [ -x "$current/initrc" ] || current=@out@
-    "$current/initrc" stop
+    if [ "$current" != @out@ ] && [ -x "$current/initrc" ] && [ ! -e "$current/live-switch" ]; then
+      "$current/initrc" stop
+    fi
     nix-env -p ${profile} --set @out@
     @out@/initrc start
     status=$?
@@ -158,6 +159,7 @@ in
           substitute $initrcPath $out/initrc --subst-var out
           substitute $switchPath $out/switch --subst-var out
           chmod +x $out/activate $out/initrc $out/switch
+          touch $out/live-switch
         '';
   };
 }

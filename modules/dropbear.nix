@@ -16,7 +16,6 @@ let
   cfg = config.services.dropbear;
 
   hostKey = "/etc/dropbear/dropbear_ed25519_host_key";
-  pidFile = "/var/run/dropbear.pid";
 in
 {
   options.services.dropbear = {
@@ -46,13 +45,11 @@ in
       ln -sfn /etc/dropbear/authorized_keys /root/.ssh/authorized_keys
     '';
 
-    system.initrc.start = ''
-      [ -f ${hostKey} ] || dropbearkey -t ed25519 -f ${hostKey}
-      dropbear -s -p ${toString cfg.port} -r ${hostKey} -P ${pidFile}
-    '';
-
-    system.initrc.stop = ''
-      [ -f ${pidFile} ] && kill "$(cat ${pidFile})"
-    '';
+    s6.services.dropbear = {
+      preStart = ''
+        [ -f ${hostKey} ] || dropbearkey -t ed25519 -f ${hostKey}
+      '';
+      command = "dropbear -F -E -s -p ${toString cfg.port} -r ${hostKey}";
+    };
   };
 }
