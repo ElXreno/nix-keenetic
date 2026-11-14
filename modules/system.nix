@@ -52,6 +52,7 @@ let
 
     start() {
       @out@/activate
+      . /etc/profile
       export PATH=/bin
       ${config.system.initrc.start}
     }

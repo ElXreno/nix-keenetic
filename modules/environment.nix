@@ -8,7 +8,9 @@ let
   inherit (lib)
     attrValues
     concatMapStrings
+    concatStrings
     escapeShellArg
+    mapAttrsToList
     mkBefore
     mkDefault
     mkIf
@@ -25,6 +27,18 @@ in
         type = types.listOf types.package;
         default = [ ];
         description = "Packages whose bin and sbin directories are linked into the system profile.";
+      };
+
+      variables = mkOption {
+        type = types.attrsOf types.str;
+        default = { };
+        description = "Environment variables exported by /etc/profile, for login shells and services alike.";
+      };
+
+      profileExtra = mkOption {
+        type = types.lines;
+        default = "";
+        description = "Shell commands appended to /etc/profile.";
       };
 
       etc = mkOption {
@@ -75,6 +89,15 @@ in
   };
 
   config = {
+    environment.etc.profile.text = ''
+      ${concatStrings (
+        mapAttrsToList (name: value: ''
+          export ${name}=${escapeShellArg value}
+        '') config.environment.variables
+      )}
+      ${config.environment.profileExtra}
+    '';
+
     build.path = buildPackages.runCommand "keenetic-path" { paths = config.environment.packages; } ''
       mkdir -p $out/bin
       for package in $paths; do

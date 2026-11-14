@@ -1,5 +1,6 @@
 {
   imports = [
+    ./base.nix
     ./environment.nix
     ./system.nix
     ./image.nix
