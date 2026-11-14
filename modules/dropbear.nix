@@ -47,9 +47,9 @@ in
 
     s6.services.dropbear = {
       preStart = ''
-        [ -f ${hostKey} ] || dropbearkey -t ed25519 -f ${hostKey}
+        [ -f ${hostKey} ] || ${pkgs.dropbear}/bin/dropbearkey -t ed25519 -f ${hostKey}
       '';
-      command = "dropbear -F -E -s -p ${toString cfg.port} -r ${hostKey}";
+      command = "${pkgs.dropbear}/bin/dropbear -F -E -s -p ${toString cfg.port} -r ${hostKey}";
     };
   };
 }
