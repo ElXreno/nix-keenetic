@@ -31,6 +31,12 @@ in
         defaultText = "config.services.dropbear.port";
         description = "SSH port of the Nix environment on the router.";
       };
+
+      confirmTimeout = mkOption {
+        type = types.ints.unsigned;
+        default = 30;
+        description = "Seconds the router waits for a fresh SSH connection after a switch before it returns to the previous generation; 0 turns the wait off.";
+      };
     };
 
     build.deploy = mkOption {
@@ -59,7 +65,13 @@ in
       nix --extra-experimental-features nix-command copy --no-check-sigs --to "ssh://$target" ${toplevel}
       echo "switching $target"
       # shellcheck disable=SC2086
-      ssh $NIX_SSHOPTS "$target" ${toplevel}/switch
+      ssh $NIX_SSHOPTS "$target" ${toplevel}/switch --confirm-timeout ${toString cfg.confirmTimeout}
+      # shellcheck disable=SC2086
+      if ! ssh $NIX_SSHOPTS "$target" ${toplevel}/switch --confirm; then
+        echo "no confirmation reached $target: it goes back to the previous generation by itself" >&2
+        exit 1
+      fi
+      echo "confirmed"
     '';
   };
 }

@@ -6,7 +6,12 @@
   ...
 }:
 let
-  inherit (lib) mkOption mkOrder types;
+  inherit (lib)
+    mkOption
+    mkOrder
+    optionalString
+    types
+    ;
 
   shell = "${pkgs.busybox}/bin/sh";
   profile = "/nix/var/nix/profiles/system";
@@ -35,6 +40,23 @@ let
   switch = ''
     #!${shell}
     export PATH=@out@/sw/bin
+    confirmation=${runtimeDirectory}/confirmed-$(basename @out@)
+
+    if [ "$1" = --confirm ]; then
+      mkdir -p ${runtimeDirectory}
+      touch "$confirmation"
+      ${optionalString (config.system.keepGenerations != null) ''
+        nix-env -p ${profile} --delete-generations +${toString config.system.keepGenerations}
+        nix-store --gc 2>&1 | tail -n 1
+      ''}
+      exit 0
+    fi
+
+    timeout=0
+    if [ "$1" = --confirm-timeout ]; then
+      timeout=$2
+    fi
+
     current=$(readlink -f ${profile})
     if [ "$current" != @out@ ] && [ -x "$current/initrc" ] && [ ! -e "$current/live-switch" ]; then
       "$current/initrc" stop
@@ -43,6 +65,12 @@ let
     @out@/initrc start
     status=$?
     echo "generation $(basename "$(readlink ${profile})" | cut -d- -f2) active: @out@"
+
+    if [ "$timeout" -gt 0 ] && [ "$current" != @out@ ] && [ -x "$current/switch" ]; then
+      rm -f "$confirmation"
+      setsid sh -c "sleep $timeout; [ -e $confirmation ] || [ \"\$(readlink -f ${profile})\" != @out@ ] || exec $current/switch" </dev/null >/dev/null 2>&1 &
+      echo "waiting $timeout s for confirmation, otherwise back to $current"
+    fi
     exit $status
   '';
 
@@ -84,6 +112,12 @@ in
         type = types.lines;
         default = "";
         description = "Shell commands that bring the root filesystem in line with the configuration.";
+      };
+
+      keepGenerations = mkOption {
+        type = types.nullOr types.ints.positive;
+        default = null;
+        description = "Number of newest generations to keep; older ones are deleted and the store is garbage collected once a deploy is confirmed. Nothing is deleted when unset.";
       };
 
       runtimeDirectory = mkOption {
