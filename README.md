@@ -144,8 +144,6 @@ on hardware:
 - Firewall and routing belong to KeeneticOS, which rebuilds its rules whenever
   it likes. No module here touches them; rules of your own go into an
   `ndm.hooks.netfilter` script so that they are put back after every rebuild.
-- A command passed directly to `ssh host command` does not read `/etc/profile`,
-  so it sees UTC and none of `environment.variables`.
 
 ## Emulator
 

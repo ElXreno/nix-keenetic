@@ -22,6 +22,16 @@ let
     cp ${pkgs.busybox}/bin/busybox $out/bin/sh
   '';
 
+  loginShell = buildPackages.writeTextFile {
+    name = "login-shell";
+    executable = true;
+    text = ''
+      #!${shell}
+      [ -r /etc/profile ] && . /etc/profile
+      exec ${shell} "$@"
+    '';
+  };
+
   bootstrap = buildPackages.writeTextFile {
     name = "initrc";
     executable = true;
@@ -192,9 +202,12 @@ in
     environment.packages = [ pkgs.busybox ];
 
     environment.etc = {
-      passwd.text = "root:x:0:0:root:/root:/bin/sh";
+      passwd.text = "root:x:0:0:root:/root:${loginShell}";
       group.text = "root:x:0:";
-      shells.text = "/bin/sh";
+      shells.text = ''
+        /bin/sh
+        ${loginShell}
+      '';
     };
 
     system.activation = mkOrder 100 ''
