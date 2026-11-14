@@ -68,8 +68,11 @@ MIPS models are not supported: there is no binary cache for them.
    ```
 
    Every deploy is a new generation of `/nix/var/nix/profiles/system`. Services
-   whose definition did not change keep running. To go back, run the `switch`
-   script of an older generation on the router:
+   whose definition did not change keep running. After the switch the script
+   opens a fresh SSH connection to confirm it; if that does not happen within
+   `deploy.confirmTimeout` seconds, the router returns to the previous
+   generation by itself. To go back by hand, run the `switch` script of an
+   older generation on the router:
 
    ```
    /nix/var/nix/profiles/system-3-link/switch
@@ -98,7 +101,9 @@ The result has `config.build.image` (ext4 image of the partition),
 | `services.dropbear.{enable,port,authorizedKeys}` | SSH into the environment, key authentication only |
 | `services.tailscale.{enable,userspaceNetworking,extraFlags}` | Tailscale; without a tun device, routes or firewall rules by default |
 | `nix.{enable,package,settings}` | Static Nix on the router, needed for deploys |
-| `deploy.{host,user,port}` | Where `deploy` connects to |
+| `ndm.hooks.<event>.<name>.text` | Scripts KeeneticOS runs on its events (`netfilter`, `wan`, `ifstatechanged` and the other `/opt/etc/ndm/*.d` directories) |
+| `deploy.{host,user,port,confirmTimeout}` | Where `deploy` connects to and how long the router waits for the confirmation |
+| `system.keepGenerations` | Keep this many generations and collect garbage after a confirmed deploy; unset keeps everything |
 | `image.{label,uuid,extraSpace}` | Image parameters |
 | `system.activation`, `system.initrc.{start,stop}` | Hooks into activation and into the script KeeneticOS runs |
 
@@ -134,7 +139,9 @@ on hardware:
   software that needs newer kernel interfaces will not run.
 - Nix on the router is there to receive closures. Building on the router is not
   a goal: `sandbox` and `filter-syscalls` are off.
-- Firewall and routing belong to KeeneticOS. Nothing here changes them yet.
+- Firewall and routing belong to KeeneticOS, which rebuilds its rules whenever
+  it likes. No module here touches them; rules of your own go into an
+  `ndm.hooks.netfilter` script so that they are put back after every rebuild.
 - A command passed directly to `ssh host command` does not read `/etc/profile`,
   so it sees UTC and none of `environment.variables`.
 
@@ -155,7 +162,8 @@ tested against it.
 The emulator downloads the KeeneticOS firmware image from the vendor's server at
 build time. It does not emulate Wi-Fi, the switch or the rest of KeeneticOS.
 
-`nix flake check` builds the minimal image and boots it in the emulator.
+`nix flake check` builds the minimal image, boots it in the emulator, logs in
+over SSH, deploys a second generation and runs a hook.
 
 ## License
 
