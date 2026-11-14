@@ -54,6 +54,12 @@
             inherit (self.lib) keeneticSystem;
             emulator = self.packages.${buildPlatform}.emulator-generic;
           };
+          deploy-vendor-kernel = pkgs.callPackage ./tests/deploy.nix {
+            inherit buildPlatform;
+            inherit (self.lib) keeneticSystem;
+            emulator = self.packages.${buildPlatform}.emulator;
+            kernel = "stock-like";
+          };
         }
       );
 

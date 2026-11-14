@@ -8,6 +8,7 @@
   emulator,
   keeneticSystem,
   buildPlatform,
+  kernel ? "generic",
 }:
 let
   system =
@@ -34,7 +35,7 @@ let
   second = system "second";
   closure = closureInfo { rootPaths = [ second.toplevel ]; };
 in
-runCommand "keenetic-deploy-check"
+runCommand "keenetic-deploy-check-${kernel}"
   {
     nativeBuildInputs = [
       emulator
@@ -56,7 +57,7 @@ runCommand "keenetic-deploy-check"
     xargs -a ${closure}/store-paths cp -a -t $source/nix/store
     nix-store --store "local?root=$source" --load-db < ${closure}/registration
 
-    keenetic-emulator --kernel generic --ssh-port 2222 --workdir $PWD/work --install keys.tar.gz \
+    keenetic-emulator --kernel ${kernel} --ssh-port 2222 --workdir $PWD/work --install keys.tar.gz \
       ${first.image} > console.log 2>&1 &
     emulator=$!
 
@@ -87,6 +88,8 @@ runCommand "keenetic-deploy-check"
     NIX_REMOTE="local?root=$source" NIX_SSHOPTS="$options" ${second.deploy}/bin/keenetic-deploy
     [ "$(remote cat /etc/marker)" = second ] || fail "the deploy did not switch to the second system"
     [ "$(remote s6-svstat -o pid /tmp/nix-run/scan/dropbear)" = "$dropbear" ] || fail "an unchanged service was restarted"
+
+    [ "$(remote 'echo $SSL_CERT_FILE')" = /etc/ssl/certs/ca-certificates.crt ] || fail "a remote command did not get the profile"
 
     control 'hook netfilter table=filter'
     [ "$(remote cat /tmp/hook.log)" = "hook filter" ] || fail "the netfilter hook did not run"
