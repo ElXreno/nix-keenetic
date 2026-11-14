@@ -42,15 +42,38 @@ let
     export PATH=@out@/sw/bin
     confirmation=${runtimeDirectory}/confirmed-$(basename @out@)
 
-    if [ "$1" = --confirm ]; then
-      mkdir -p ${runtimeDirectory}
-      touch "$confirmation"
-      ${optionalString (config.system.keepGenerations != null) ''
-        nix-env -p ${profile} --delete-generations +${toString config.system.keepGenerations}
-        nix-store --gc 2>&1 | tail -n 1
-      ''}
-      exit 0
-    fi
+    generation() {
+      basename "$(readlink ${profile})" | cut -d- -f2
+    }
+
+    rollback() {
+      echo "rolling back: $1" >&2
+      failed=$(generation)
+      nix-env -p ${profile} --rollback
+      nix-env -p ${profile} --delete-generations "$failed"
+      previous=$(readlink -f ${profile})
+      [ -e "$previous/live-switch" ] || @out@/initrc stop
+      "$previous/initrc" start
+      echo "generation $(generation) active again: $previous" >&2
+    }
+
+    case "$1" in
+      --confirm)
+        mkdir -p ${runtimeDirectory}
+        touch "$confirmation"
+        ${optionalString (config.system.keepGenerations != null) ''
+          nix-env -p ${profile} --delete-generations +${toString config.system.keepGenerations}
+          nix-store --gc 2>&1 | tail -n 1
+        ''}
+        exit 0
+        ;;
+      --unconfirmed)
+        if [ ! -e "$confirmation" ] && [ "$(readlink -f ${profile})" = @out@ ] && [ "$(generation)" = "$2" ]; then
+          rollback "no confirmation arrived"
+        fi
+        exit 0
+        ;;
+    esac
 
     timeout=0
     if [ "$1" = --confirm-timeout ]; then
@@ -61,17 +84,21 @@ let
     if [ "$current" != @out@ ] && [ -x "$current/initrc" ] && [ ! -e "$current/live-switch" ]; then
       "$current/initrc" stop
     fi
-    nix-env -p ${profile} --set @out@
-    @out@/initrc start
-    status=$?
-    echo "generation $(basename "$(readlink ${profile})" | cut -d- -f2) active: @out@"
+    nix-env -p ${profile} --set @out@ || exit 1
 
-    if [ "$timeout" -gt 0 ] && [ "$current" != @out@ ] && [ -x "$current/switch" ]; then
+    if ! @out@/initrc start; then
+      if [ "$current" != @out@ ] && [ -x "$current/initrc" ]; then
+        rollback "the new generation did not start"
+      fi
+      exit 1
+    fi
+    echo "generation $(generation) active: @out@"
+
+    if [ "$timeout" -gt 0 ] && [ "$current" != @out@ ] && [ -x "$current/initrc" ]; then
       rm -f "$confirmation"
-      setsid sh -c "sleep $timeout; [ -e $confirmation ] || [ \"\$(readlink -f ${profile})\" != @out@ ] || exec $current/switch" </dev/null >/dev/null 2>&1 &
+      setsid sh -c "sleep $timeout; exec @out@/switch --unconfirmed $(generation)" </dev/null >/dev/null 2>&1 &
       echo "waiting $timeout s for confirmation, otherwise back to $current"
     fi
-    exit $status
   '';
 
   initrc = ''
@@ -80,10 +107,12 @@ let
     unset LD_LIBRARY_PATH
 
     start() {
+      status=0
       @out@/activate
       . /etc/profile
       export PATH=/bin
       ${config.system.initrc.start}
+      return $status
     }
 
     stop() {

@@ -68,11 +68,13 @@ MIPS models are not supported: there is no binary cache for them.
    ```
 
    Every deploy is a new generation of `/nix/var/nix/profiles/system`. Services
-   whose definition did not change keep running. After the switch the script
-   opens a fresh SSH connection to confirm it; if that does not happen within
-   `deploy.confirmTimeout` seconds, the router returns to the previous
-   generation by itself. To go back by hand, run the `switch` script of an
-   older generation on the router:
+   whose definition did not change keep running. If a service of the new
+   generation does not come up, the router returns to the previous generation
+   right away. Otherwise the script opens a fresh SSH connection to confirm the
+   switch; if that does not happen within `deploy.confirmTimeout` seconds, the
+   router goes back by itself as well. A failed generation is removed from the
+   profile. To go back by hand, run the `switch` script of an older generation
+   on the router:
 
    ```
    /nix/var/nix/profiles/system-3-link/switch

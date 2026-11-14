@@ -155,7 +155,9 @@ in
       if $supervised; then
         ${s6}/bin/s6-svscanctl -an "$scan"
         for name in $changed; do
-          ${s6}/bin/s6-svok "$definitions/$name" && ${s6}/bin/s6-svc -r "$definitions/$name"
+          if ${s6}/bin/s6-svok "$definitions/$name"; then
+            ${s6}/bin/s6-svc -wr -T 10000 -r "$definitions/$name" || status=1
+          fi
         done
       else
         setsid ${s6}/bin/s6-svscan "$scan" </dev/null >>${logDirectory}/s6-svscan.log 2>&1 &
@@ -176,7 +178,25 @@ in
           sleep 0.2
           attempts=$((attempts - 1))
         done
+        if [ "$attempts" -eq 0 ]; then
+          echo "service $name did not start" >&2
+          status=1
+        fi
       done
+
+      if [ -n "$changed" ] || ! $supervised; then
+        for name in $wanted; do
+          echo "$name $(${s6}/bin/s6-svstat -o pid "$scan/$name" 2>/dev/null)"
+        done > "$scan/.settling"
+        sleep 2
+        while read -r name pid; do
+          if [ "$(${s6}/bin/s6-svstat -o up,pid "$scan/$name" 2>/dev/null)" != "true $pid" ]; then
+            echo "service $name keeps restarting" >&2
+            status=1
+          fi
+        done < "$scan/.settling"
+        rm -f "$scan/.settling"
+      fi
     '';
 
     system.initrc.stop = ''
