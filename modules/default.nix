@@ -7,6 +7,7 @@
     ./nix.nix
     ./s6.nix
     ./dropbear.nix
+    ./tailscale.nix
     ./deploy.nix
   ];
 }
