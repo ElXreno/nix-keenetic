@@ -162,8 +162,11 @@ tested against it.
 The emulator downloads the KeeneticOS firmware image from the vendor's server at
 build time. It does not emulate Wi-Fi, the switch or the rest of KeeneticOS.
 
-`nix flake check` builds the minimal image, boots it in the emulator, logs in
-over SSH, deploys a second generation and runs a hook.
+`nix flake check` builds the minimal image and boots it in the emulator, on the
+nixpkgs kernel and on the vendor one. The deploy check logs in over SSH and
+deploys three generations: one that loses SSH and one with a crashing service,
+which both have to roll back, and a good one, which has to keep unchanged
+services running and clean up old generations.
 
 ## License
 
