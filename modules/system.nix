@@ -47,9 +47,27 @@ let
     ${config.system.activation}
   '';
 
+  lock = ''
+    if [ -z "$KEENETIC_LOCK_HELD" ]; then
+      mkdir -p ${runtimeDirectory}
+      exec 9>${runtimeDirectory}/lock
+      attempts=1500
+      until flock -n 9; do
+        attempts=$((attempts - 1))
+        if [ "$attempts" -eq 0 ]; then
+          echo "another switch has been running for five minutes, giving up" >&2
+          exit 1
+        fi
+        sleep 0.2
+      done
+      export KEENETIC_LOCK_HELD=1
+    fi
+  '';
+
   switch = ''
     #!${shell}
     export PATH=@out@/sw/bin
+    ${lock}
     confirmation=${runtimeDirectory}/confirmed-$(basename @out@)
 
     generation() {
@@ -106,7 +124,7 @@ let
 
     if [ "$timeout" -gt 0 ] && [ "$current" != @out@ ] && [ -x "$current/initrc" ]; then
       rm -f "$confirmation"
-      setsid sh -c "sleep $timeout; exec @out@/switch --unconfirmed $(generation)" </dev/null >/dev/null 2>&1 &
+      setsid sh -c "unset KEENETIC_LOCK_HELD; sleep $timeout; exec @out@/switch --unconfirmed $(generation)" </dev/null >/dev/null 2>&1 9>&- &
       echo "waiting $timeout s for confirmation, otherwise back to $current"
     fi
   '';
@@ -115,6 +133,7 @@ let
     #!${shell}
     export PATH=@out@/sw/bin
     unset LD_LIBRARY_PATH
+    ${lock}
 
     start() {
       status=0

@@ -160,7 +160,7 @@ in
           fi
         done
       else
-        setsid ${s6}/bin/s6-svscan "$scan" </dev/null >>${logDirectory}/s6-svscan.log 2>&1 &
+        setsid env -u KEENETIC_LOCK_HELD ${s6}/bin/s6-svscan "$scan" </dev/null >>${logDirectory}/s6-svscan.log 2>&1 9>&- &
       fi
 
       for name in $removed; do
@@ -187,15 +187,15 @@ in
       if [ -n "$changed" ] || ! $supervised; then
         for name in $wanted; do
           echo "$name $(${s6}/bin/s6-svstat -o pid "$scan/$name" 2>/dev/null)"
-        done > "$scan/.settling"
+        done > "$scan/.settling.$$"
         sleep 2
         while read -r name pid; do
           if [ "$(${s6}/bin/s6-svstat -o up,pid "$scan/$name" 2>/dev/null)" != "true $pid" ]; then
             echo "service $name keeps restarting" >&2
             status=1
           fi
-        done < "$scan/.settling"
-        rm -f "$scan/.settling"
+        done < "$scan/.settling.$$"
+        rm -f "$scan/.settling.$$"
       fi
     '';
 
