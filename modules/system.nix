@@ -15,6 +15,7 @@ let
 
   shell = "${pkgs.busybox}/bin/sh";
   profile = "/nix/var/nix/profiles/system";
+  liveSwitchVersion = "2";
   inherit (config.system) runtimeDirectory;
 
   bootShell = buildPackages.runCommand "keenetic-boot-shell" { } ''
@@ -74,13 +75,17 @@ let
       basename "$(readlink ${profile})" | cut -d- -f2
     }
 
+    compatible() {
+      [ "$(cat "$1/live-switch" 2>/dev/null)" = ${liveSwitchVersion} ]
+    }
+
     rollback() {
       echo "rolling back: $1" >&2
       failed=$(generation)
       nix-env -p ${profile} --rollback
       nix-env -p ${profile} --delete-generations "$failed"
       previous=$(readlink -f ${profile})
-      [ -e "$previous/live-switch" ] || @out@/initrc stop
+      compatible "$previous" || @out@/initrc stop
       "$previous/initrc" start
       echo "generation $(generation) active again: $previous" >&2
     }
@@ -109,7 +114,7 @@ let
     fi
 
     current=$(readlink -f ${profile})
-    if [ "$current" != @out@ ] && [ -x "$current/initrc" ] && [ ! -e "$current/live-switch" ]; then
+    if [ "$current" != @out@ ] && [ -x "$current/initrc" ] && ! compatible "$current"; then
       "$current/initrc" stop
     fi
     nix-env -p ${profile} --set @out@ || exit 1
@@ -261,7 +266,7 @@ in
           substitute $initrcPath $out/initrc --subst-var out
           substitute $switchPath $out/switch --subst-var out
           chmod +x $out/activate $out/initrc $out/switch
-          touch $out/live-switch
+          echo ${liveSwitchVersion} > $out/live-switch
         '';
   };
 }

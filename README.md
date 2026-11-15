@@ -6,7 +6,7 @@ SSH, one generation per deploy.
 
 This is not NixOS: the kernel, PID 1 and the network stay with KeeneticOS. What
 you get is a `/nix/store` on the drive, a system profile built from a small set
-of modules, services supervised by s6 and a `deploy` script.
+of modules, services managed by s6-rc and a `deploy` script.
 
 ## Status
 
@@ -100,6 +100,7 @@ The result has `config.build.image` (ext4 image of the partition),
 | `environment.etc.<name>.{text,source}` | Files in `/etc` |
 | `environment.variables`, `environment.profileExtra` | `/etc/profile`, read by login shells and services |
 | `s6.services.<name>.{command,environment,preStart,log}` | A supervised service with a rotated log in `/tmp/nix-run/log/<name>` |
+| `s6.services.<name>.{type,up,down,dependencies}` | One-time tasks (`type = "oneshot"`) and start order between services |
 | `services.dropbear.{enable,port,authorizedKeys}` | SSH into the environment, key authentication only |
 | `services.tailscale.{enable,userspaceNetworking,extraFlags}` | Tailscale; without a tun device, routes or firewall rules by default |
 | `nix.{enable,package,settings}` | Static Nix on the router, needed for deploys |
@@ -121,8 +122,9 @@ KeeneticOS mounts the partition at `/opt` and, with `opkg chroot` enabled,
 changes the root to it before running `/opt/etc/initrc`. The image therefore is
 a root file system: `/nix`, `/etc`, `/var`, with `/bin` pointing into the system
 profile. `initrc` runs the activation script of the current generation (links
-`/etc`, prepares `/var/run` on the router's tmpfs) and then brings the s6
-supervision tree in line with the configuration.
+`/etc`, prepares `/var/run` on the router's tmpfs) and then brings the services
+in line with the configuration: s6-rc starts them in dependency order under an
+s6 supervision tree, and a later switch restarts only what changed.
 
 Things KeeneticOS insists on, found by reading its OPKG component and confirmed
 on hardware:

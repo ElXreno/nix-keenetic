@@ -21,6 +21,10 @@ let
           deploy.host = "127.0.0.1";
           deploy.confirmTimeout = 10;
           services.dropbear.enable = true;
+          s6.services.ticker = {
+            command = "sleep 100000";
+            environment.VALUE = lib.mkDefault "1";
+          };
           environment.etc = {
             marker.text = marker;
             "dropbear/authorized_keys".source = lib.mkForce "/etc/test-authorized-keys";
@@ -34,7 +38,21 @@ let
     }).config.build;
 
   first = system "first" { };
-  second = system "second" { system.keepGenerations = 1; };
+  second = system "second" {
+    system.keepGenerations = 1;
+    s6.services = {
+      ticker.environment.VALUE = "2";
+      prepare = {
+        type = "oneshot";
+        up = "echo prepare >> /tmp/order.log";
+      };
+      ordered = {
+        dependencies = [ "prepare" ];
+        preStart = "echo ordered >> /tmp/order.log";
+        command = "sleep 100000";
+      };
+    };
+  };
   unreachable = system "unreachable" {
     services.dropbear.port = 2299;
     deploy.port = 2222;
@@ -122,9 +140,12 @@ runCommand "keenetic-deploy-check-${kernel}"
     [ -z "$(remote 'ls /tmp/nix-run/scan' | grep crashing)" ] || fail "the crashing service is still supervised"
 
     dropbear=$(remote s6-svstat -o pid /tmp/nix-run/scan/dropbear)
+    ticker=$(remote s6-svstat -o pid /tmp/nix-run/scan/ticker)
     deploy ${second.deploy}
     [ "$(remote cat /etc/marker)" = second ] || fail "the deploy did not switch to the second system"
     [ "$(remote s6-svstat -o pid /tmp/nix-run/scan/dropbear)" = "$dropbear" ] || fail "an unchanged service was restarted"
+    [ "$(remote s6-svstat -o pid /tmp/nix-run/scan/ticker)" != "$ticker" ] || fail "a changed service was not restarted"
+    [ "$(remote cat /tmp/order.log | tr '\n' ' ')" = "prepare ordered " ] || fail "a service started before its dependency"
     [ "$(generations)" = 1 ] || fail "old generations were not removed"
 
     [ "$(remote 'echo $SSL_CERT_FILE')" = /etc/ssl/certs/ca-certificates.crt ] || fail "a remote command did not get the profile"
