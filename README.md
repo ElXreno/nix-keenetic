@@ -156,6 +156,12 @@ crontab line cannot express (seconds, a year, a step that does not start at
 zero) and the other timer triggers (`OnBootSec`, `OnUnitActiveSec`) fail the
 evaluation as well.
 
+Scripts and configuration files that NixOS generates are built on the build
+machine, like the rest of the glue. A module that runs the package itself during
+the build, usually to validate a configuration file, needs that step turned off
+through its own option, since the build machine cannot run the router's
+binaries.
+
 Such a unit can often be adjusted in `nixos.configuration` itself, through
 `systemd.services.<name>.serviceConfig`. The usual GNU tools NixOS puts on the
 `PATH` of every unit are replaced by busybox. Check what a service adds to the

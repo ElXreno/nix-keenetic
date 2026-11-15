@@ -2,6 +2,7 @@
   config,
   lib,
   pkgs,
+  buildPackages,
   ...
 }:
 let
@@ -38,12 +39,35 @@ let
 
   cfg = config.nixos;
 
+  glue =
+    import "${pkgs.path}/pkgs/build-support/trivial-builders" {
+      inherit lib;
+      inherit (buildPackages)
+        config
+        stdenv
+        stdenvNoCC
+        jq
+        shellcheck-minimal
+        lndir
+        ;
+      inherit (pkgs) runtimeShell;
+    }
+    // {
+      inherit (buildPackages)
+        buildEnv
+        formats
+        replaceVars
+        replaceVarsWith
+        ;
+    };
+
   nixos = import "${pkgs.path}/nixos/lib/eval-config.nix" {
     system = null;
     modules = [
       cfg.configuration
       {
         nixpkgs.pkgs = pkgs;
+        _module.args.pkgs = lib.mkForce (pkgs // glue);
         boot.isContainer = true;
         system.stateVersion = lib.trivial.release;
       }
