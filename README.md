@@ -109,6 +109,9 @@ The result has `config.build.image` (ext4 image of the partition),
 | `image.{label,uuid,extraSpace}` | Image parameters |
 | `system.activation`, `system.initrc.{start,stop}` | Hooks into activation and into the script KeeneticOS runs |
 
+The full reference with types and defaults is generated from the modules:
+<https://elxreno.github.io/nix-keenetic/options.html>.
+
 The package set is plain nixpkgs for `aarch64-linux`, passed to modules as
 `pkgs`.
 
