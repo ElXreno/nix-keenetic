@@ -225,21 +225,27 @@ in
   config = {
     environment.packages = [ pkgs.busybox ];
 
-    environment.etc = {
-      passwd.text = "root:x:0:0:root:/root:${loginShell}";
-      group.text = "root:x:0:";
-      shells.text = ''
-        /bin/sh
-        ${loginShell}
-      '';
+    users.users.root = {
+      uid = 0;
+      description = "root";
+      home = "/root";
+      shell = "${loginShell}";
     };
+    users.groups.root.gid = 0;
+
+    environment.etc.shells.text = ''
+      /bin/sh
+      ${loginShell}
+    '';
 
     system.activation = mkOrder 100 ''
-      mkdir -p /etc /root /home /var/log ${runtimeDirectory}
-      if [ "$(readlink /var/run)" != ${runtimeDirectory} ]; then
-        rm -rf /var/run
-        ln -s ${runtimeDirectory} /var/run
-      fi
+      mkdir -p /etc /root /home /var/log /var/lib /var/cache /var/empty ${runtimeDirectory}
+      for link in /var/run /run; do
+        if [ "$(readlink $link)" != ${runtimeDirectory} ]; then
+          rm -rf $link
+          ln -s ${runtimeDirectory} $link
+        fi
+      done
       cp ${bootstrap} /etc/initrc.new
       chmod 755 /etc/initrc.new
       mv -f /etc/initrc.new /etc/initrc

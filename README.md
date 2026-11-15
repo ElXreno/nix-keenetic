@@ -101,6 +101,9 @@ The result has `config.build.image` (ext4 image of the partition),
 | `environment.variables`, `environment.profileExtra` | `/etc/profile`, read by login shells and services |
 | `s6.services.<name>.{command,environment,preStart,log}` | A supervised service with a rotated log in `/tmp/nix-run/log/<name>` |
 | `s6.services.<name>.{type,up,down,dependencies}` | One-time tasks (`type = "oneshot"`) and start order between services |
+| `s6.services.<name>.{user,group,ambientCapabilities,directories}` | Run a service as an account other than root, with its own directories |
+| `users.users.<name>`, `users.groups.<name>` | Accounts and groups in `/etc/passwd` and `/etc/group`; ids are derived from the name unless set |
+| `nixos.{configuration,services,users,etc}` | Run services of a NixOS configuration, see below |
 | `services.dropbear.{enable,port,authorizedKeys}` | SSH into the environment, key authentication only |
 | `services.tailscale.{enable,userspaceNetworking,extraFlags}` | Tailscale; without a tun device, routes or firewall rules by default |
 | `nix.{enable,package,settings}` | Static Nix on the router, needed for deploys |
@@ -115,6 +118,41 @@ The full reference with types and defaults is generated from the modules:
 
 The package set is plain nixpkgs for `aarch64-linux`, passed to modules as
 `pkgs`.
+
+## Services from NixOS
+
+A service that NixOS already knows how to configure does not have to be
+described again. Write its NixOS options into `nixos.configuration` and name the
+systemd unit in `nixos.services`:
+
+```nix
+{
+  nixos.configuration.services.vnstat.enable = true;
+  nixos.services = [ "vnstat" ];
+}
+```
+
+The NixOS configuration is only evaluated. The unit is translated into an
+`s6.services` entry: command lines, environment, account and group, state and
+runtime directories, ambient capabilities, restart delay and the order between
+listed units. Its account is created, and `environment.etc` files named in its
+command lines are installed. Anything else of the NixOS configuration stays out;
+`nixos.users` and `nixos.etc` pull in further accounts and files by name.
+
+What a router with this kernel cannot provide is handled in one of two ways:
+
+- Sandboxing and resource limits (`ProtectSystem`, `PrivateTmp`,
+  `SystemCallFilter`, `MemoryMax` and the like) are dropped, so the service runs
+  less confined than on NixOS.
+- Everything that would change what the service does fails the evaluation with
+  the list of reasons: `Type=forking` and `Type=dbus`, socket activation,
+  `ExecStartPost`, a unit whose command comes from a unit file shipped by the
+  package, unknown directives.
+
+Such a unit can often be adjusted in `nixos.configuration` itself, through
+`systemd.services.<name>.serviceConfig`. The usual GNU tools NixOS puts on the
+`PATH` of every unit are replaced by busybox. Check what a service adds to the
+drive: packages come as NixOS builds them, with all their dependencies.
 
 ## How it works
 

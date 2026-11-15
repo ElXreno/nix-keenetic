@@ -40,13 +40,23 @@ let
   first = system "first" { };
   second = system "second" {
     system.keepGenerations = 1;
+    users.users.web = { };
+    nixos.configuration.services.vnstat.enable = true;
+    nixos.services = [ "vnstat" ];
     s6.services = {
       ticker.environment.VALUE = "2";
       prepare = {
         type = "oneshot";
-        up = "echo prepare >> /tmp/order.log";
+        up = "echo prepare >> /tmp/order.log; chmod 666 /tmp/order.log";
+      };
+      web = {
+        user = "web";
+        ambientCapabilities = [ "CAP_NET_BIND_SERVICE" ];
+        directories."/var/lib/web" = { };
+        command = "httpd -f -p 80 -h /var/lib/web";
       };
       ordered = {
+        user = "web";
         dependencies = [ "prepare" ];
         preStart = "echo ordered >> /tmp/order.log";
         command = "sleep 100000";
@@ -146,6 +156,18 @@ runCommand "keenetic-deploy-check-${kernel}"
     [ "$(remote s6-svstat -o pid /tmp/nix-run/scan/dropbear)" = "$dropbear" ] || fail "an unchanged service was restarted"
     [ "$(remote s6-svstat -o pid /tmp/nix-run/scan/ticker)" != "$ticker" ] || fail "a changed service was not restarted"
     [ "$(remote cat /tmp/order.log | tr '\n' ' ')" = "prepare ordered " ] || fail "a service started before its dependency"
+    web=$(remote id -u web)
+    [ "$web" -gt 0 ] || fail "the account of a service was not created"
+    for service in web ordered; do
+      pid=$(remote s6-svstat -o pid /tmp/nix-run/scan/$service)
+      [ "$(remote "awk '/^Uid:/ { print \$2 }' /proc/$pid/status")" = "$web" ] || fail "the service $service does not run as its account"
+    done
+    [ "$(remote stat -c %U /var/lib/web)" = web ] || fail "a service directory was not handed to the account"
+
+    pid=$(remote s6-svstat -o pid /tmp/nix-run/scan/vnstat)
+    [ "$(remote "awk '/^Uid:/ { print \$2 }' /proc/$pid/status")" = "$(remote id -u vnstatd)" ] || fail "the service taken from NixOS does not run as its account"
+    [ "$(remote stat -c %U /var/lib/vnstat)" = vnstatd ] || fail "the state directory of the service taken from NixOS has the wrong owner"
+    remote test -s /var/lib/vnstat/vnstat.db || fail "the service taken from NixOS did not create its database"
     [ "$(generations)" = 1 ] || fail "old generations were not removed"
 
     [ "$(remote 'echo $SSL_CERT_FILE')" = /etc/ssl/certs/ca-certificates.crt ] || fail "a remote command did not get the profile"

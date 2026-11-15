@@ -23,6 +23,8 @@ let
     mkIf
     mkOption
     optionalAttrs
+    optionalString
+    toLower
     optionals
     types
     ;
@@ -82,6 +84,18 @@ let
         message = "s6.services.${name}: a oneshot needs up";
       }
       {
+        assertion = service.user == null || config.users.users ? ${service.user};
+        message = "s6.services.${name}: the account ${toString service.user} is not declared in users.users";
+      }
+      {
+        assertion = service.group == null || config.users.groups ? ${service.group};
+        message = "s6.services.${name}: the group ${toString service.group} is not declared in users.groups";
+      }
+      {
+        assertion = service.user != null || (service.group == null && service.ambientCapabilities == [ ]);
+        message = "s6.services.${name}: group and ambientCapabilities need a user";
+      }
+      {
         assertion = missing == [ ];
         message = "s6.services.${name}: depends on unknown or disabled ${concatStringsSep ", " missing}";
       }
@@ -107,16 +121,91 @@ let
       }) service.dependencies
     );
 
+  identity =
+    service:
+    let
+      uid = toString config.users.ids.users.${service.user};
+      gid = toString config.users.ids.groups.${group service};
+    in
+    {
+      inherit uid gid;
+      groups = concatStringsSep "," (
+        [ gid ]
+        ++ map (name: toString config.users.ids.groups.${name}) (
+          builtins.filter (
+            name:
+            name != group service
+            && (
+              builtins.elem name config.users.users.${service.user}.extraGroups
+              || builtins.elem service.user config.users.groups.${name}.members
+            )
+          ) (attrNames config.users.groups)
+        )
+      );
+    };
+
+  group =
+    service: if service.group != null then service.group else config.users.users.${service.user}.group;
+
+  environment =
+    service:
+    concatStrings (
+      mapAttrsToList (variable: value: ''
+        export ${variable}=${escapeShellArg value}
+      '') service.environment
+    );
+
+  prepare =
+    service:
+    concatStrings (
+      mapAttrsToList (
+        directory: settings:
+        ''
+          mkdir -p ${escapeShellArg directory}
+          chmod ${settings.mode} ${escapeShellArg directory}
+        ''
+        + optionalString (service.user != null) ''
+          chown ${(identity service).uid}:${(identity service).gid} ${escapeShellArg directory}
+        ''
+      ) service.directories
+    )
+    + optionalString (service.workingDirectory != null) ''
+      cd ${escapeShellArg service.workingDirectory}
+    ''
+    + optionalString (service.umask != null) ''
+      umask ${service.umask}
+    '';
+
+  drop =
+    service: program:
+    let
+      inherit (identity service) uid gid groups;
+      capabilities = concatStringsSep "," (map toLower service.ambientCapabilities);
+    in
+    if service.user == null then
+      program
+    else if service.ambientCapabilities == [ ] then
+      "${s6}/bin/s6-applyuidgid -u ${uid} -g ${gid} -G ${groups} -- ${program}"
+    else
+      "${getBin pkgs.libcap}/bin/capsh --caps='${capabilities}+eip cap_setpcap,cap_setuid,cap_setgid+ep' --keep=1 --gid=${gid} --groups=${groups} --uid=${uid} --addamb=${capabilities} --shell=${program} --";
+
   definitions =
     name: service:
     if service.type == "oneshot" then
       {
         ${name} = {
           type = "oneshot\n";
-          up = "${script "${name}-up" service.up}\n";
+          up = "${script "${name}-up" ''
+            ${environment service}
+            ${prepare service}
+            exec ${drop service (script "${name}-up-commands" service.up)}
+          ''}\n";
         }
         // optionalAttrs (service.down != "") {
-          down = "${script "${name}-down" service.down}\n";
+          down = "${script "${name}-down" ''
+            ${environment service}
+            exec ${drop service (script "${name}-down-commands" service.down)}
+          ''}\n";
         }
         // dependencies service;
       }
@@ -128,14 +217,25 @@ let
           run = ''
             #!${shell}
             exec 2>&1
-            ${concatStrings (
-              mapAttrsToList (variable: value: ''
-                export ${variable}=${escapeShellArg value}
-              '') service.environment
+            ${environment service}
+            ${prepare service}
+            exec ${drop service (
+              script "${name}-commands" ''
+                ${service.preStart}
+                exec ${service.command}
+              ''
             )}
-            ${service.preStart}
-            exec ${service.command}
           '';
+        }
+        // optionalAttrs (service.postStop != "" || service.restartDelay > 0) {
+          finish = ''
+            #!${shell}
+            exec 2>&1
+            ${environment service}
+            ${service.postStop}
+            ${optionalString (service.restartDelay > 0) "sleep ${toString service.restartDelay}"}
+          '';
+          timeout-finish = "${toString ((service.restartDelay + 5) * 1000)}\n";
         }
         // dependencies service;
         "${name}-log" = {
@@ -188,6 +288,9 @@ let
           jq -j --arg service "''${file%%/*}" --arg file "''${file#*/}" '.[$service][$file]' $sourcePath > "$out/source/$file"
         done
         chmod +x $out/source/*/run
+        for finish in $out/source/*/finish; do
+          [ -e "$finish" ] && chmod +x "$finish"
+        done
         cp $manifestPath $out/manifest
         s6-rc-compile $out/compiled $out/source
         ${concatMapStrings
@@ -255,6 +358,67 @@ in
               description = "Shell commands run before every start of a longrun.";
             };
 
+            postStop = mkOption {
+              type = types.lines;
+              default = "";
+              description = "Shell commands run as root every time a longrun has exited.";
+            };
+
+            restartDelay = mkOption {
+              type = types.ints.unsigned;
+              default = 0;
+              description = "Seconds to wait before a longrun that exited is started again.";
+            };
+
+            user = mkOption {
+              type = types.nullOr types.str;
+              default = null;
+              description = "Account from `users.users` the commands run as; root when unset.";
+            };
+
+            group = mkOption {
+              type = types.nullOr types.str;
+              default = null;
+              description = "Group the commands run as; the primary group of the account when unset.";
+            };
+
+            ambientCapabilities = mkOption {
+              type = types.listOf types.str;
+              default = [ ];
+              example = [ "CAP_NET_BIND_SERVICE" ];
+              description = "Capabilities kept when the commands run as an account other than root.";
+            };
+
+            directories = mkOption {
+              type = types.attrsOf (
+                types.submodule {
+                  options.mode = mkOption {
+                    type = types.str;
+                    default = "0755";
+                    description = "Permissions of the directory.";
+                  };
+                }
+              );
+              default = { };
+              example = {
+                "/var/lib/example" = { };
+              };
+              description = "Directories created before the commands run and handed to the account of the service.";
+            };
+
+            workingDirectory = mkOption {
+              type = types.nullOr types.str;
+              default = null;
+              description = "Directory the commands run in.";
+            };
+
+            umask = mkOption {
+              type = types.nullOr types.str;
+              default = null;
+              example = "0077";
+              description = "File mode creation mask of the commands.";
+            };
+
             up = mkOption {
               type = types.lines;
               default = "";
@@ -318,18 +482,25 @@ in
         ${s6-rc}/bin/s6-rc-init -c "$compiled" -l "$live" "$scan" || status=1
         settle=true
       elif [ "$(readlink -f "$live/compiled")" != "$compiled" ]; then
+        changed=
         while read -r name hash; do
           previous=$(awk -v name="$name" '$1 == name { print $2 }' ${manifest})
           if [ -n "$previous" ] && [ "$previous" != "$hash" ]; then
-            echo "$name restart"
+            changed="$changed $name"
           fi
-        done < ${database}/manifest > ${runtimeDirectory}/s6-rc-conversion
-        ${s6-rc}/bin/s6-rc-update -b -l "$live" -f ${runtimeDirectory}/s6-rc-conversion "$compiled" || status=1
+        done < ${database}/manifest
+        ${s6-rc}/bin/s6-rc-update -b -t 30000 -l "$live" "$compiled"
+        if [ "$(readlink -f "$live/compiled")" = "$compiled" ] && [ -n "$changed" ]; then
+          ${s6-rc}/bin/s6-rc -b -l "$live" -d -t 15000 change $changed || status=1
+        fi
         settle=true
       fi
 
       if [ "$(readlink -f "$live/compiled")" = "$compiled" ]; then
         cp ${database}/manifest ${manifest}
+      else
+        echo "the service database was not switched" >&2
+        status=1
       fi
 
       ${s6-rc}/bin/s6-rc -b -l "$live" -u -t 15000 change default || status=1
