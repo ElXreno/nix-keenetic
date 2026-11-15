@@ -6,8 +6,11 @@
 }:
 let
   inherit (lib)
+    all
+    attrNames
     concatStrings
-    genAttrs
+    concatStringsSep
+    elem
     mapAttrsToList
     mkOption
     types
@@ -47,21 +50,30 @@ let
     };
 in
 {
-  options.ndm.hooks = genAttrs events (
-    event:
-    mkOption {
-      default = { };
-      description = "Scripts KeeneticOS runs from /opt/etc/ndm/${event}.d, in the order of their names, with the event in the environment.";
-      type = types.attrsOf (
+  options.ndm.hooks = mkOption {
+    default = { };
+    example = {
+      netfilter."10-rules".text = ''
+        [ "$table" = filter ] || exit 0
+        logger "KeeneticOS rebuilt the $type filter table"
+      '';
+    };
+    description = ''
+      Scripts KeeneticOS runs on its events, by event and then by name: the
+      scripts of one event run in the order of their names, with the details
+      of the event in the environment. Events: ${concatStringsSep ", " events}.
+    '';
+    type = types.addCheck (types.attrsOf (
+      types.attrsOf (
         types.submodule {
           options.text = mkOption {
             type = types.lines;
             description = "Body of the shell script.";
           };
         }
-      );
-    }
-  );
+      )
+    )) (hooks: all (event: elem event events) (attrNames hooks));
+  };
 
   config.system.activation = ''
     rm -rf /etc/ndm.new /etc/ndm.old
