@@ -102,6 +102,7 @@ The result has `config.build.image` (ext4 image of the partition),
 | `s6.services.<name>.{command,environment,preStart,log}` | A supervised service with a rotated log in `/tmp/nix-run/log/<name>` |
 | `s6.services.<name>.{type,up,down,dependencies}` | One-time tasks (`type = "oneshot"`) and start order between services |
 | `s6.services.<name>.{user,group,ambientCapabilities,directories}` | Run a service as an account other than root, with its own directories |
+| `cron.jobs.<name>.{schedule,command}` | Commands run on a schedule by the cron daemon of busybox |
 | `users.users.<name>`, `users.groups.<name>` | Accounts and groups in `/etc/passwd` and `/etc/group`; ids are derived from the name unless set |
 | `nixos.{configuration,services,users,etc}` | Run services of a NixOS configuration, see below |
 | `services.dropbear.{enable,port,authorizedKeys}` | SSH into the environment, key authentication only |
@@ -148,6 +149,12 @@ What a router with this kernel cannot provide is handled in one of two ways:
   the list of reasons: `Type=forking` and `Type=dbus`, socket activation,
   `ExecStartPost`, a unit whose command comes from a unit file shipped by the
   package, unknown directives.
+
+A listed unit that NixOS starts from a timer is not brought up with the system:
+its `OnCalendar` becomes a `cron.jobs` entry that runs it. Calendar expressions a
+crontab line cannot express (seconds, a year, a step that does not start at
+zero) and the other timer triggers (`OnBootSec`, `OnUnitActiveSec`) fail the
+evaluation as well.
 
 Such a unit can often be adjusted in `nixos.configuration` itself, through
 `systemd.services.<name>.serviceConfig`. The usual GNU tools NixOS puts on the

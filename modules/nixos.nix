@@ -201,6 +201,134 @@ let
     else
       null;
 
+  weekdays = {
+    Mon = "1";
+    Tue = "2";
+    Wed = "3";
+    Thu = "4";
+    Fri = "5";
+    Sat = "6";
+    Sun = "0";
+  };
+
+  shorthands = {
+    minutely = "* * * * *";
+    hourly = "0 * * * *";
+    daily = "0 0 * * *";
+    weekly = "0 0 * * 1";
+    monthly = "0 0 1 * *";
+    quarterly = "0 0 1 1,4,7,10 *";
+    yearly = "0 0 1 1 *";
+    annually = "0 0 1 1 *";
+  };
+
+  number =
+    text: if builtins.match "[0-9]+" text == null then null else toString (lib.toIntBase10 text);
+
+  field =
+    text:
+    let
+      step = builtins.match "([^/]+)/([0-9]+)" text;
+      range = builtins.match "([0-9]+)\\.\\.([0-9]+)" text;
+      items = map number (splitString "," text);
+    in
+    if text == "*" then
+      "*"
+    else if step != null then
+      if
+        elem (builtins.head step) [
+          "*"
+          "0"
+          "00"
+        ]
+      then
+        "*/${number (lib.last step)}"
+      else
+        null
+    else if range != null then
+      "${number (builtins.head range)}-${number (lib.last range)}"
+    else if any (item: item == null) items then
+      null
+    else
+      concatStringsSep "," items;
+
+  weekday =
+    text:
+    let
+      items = map (
+        item:
+        let
+          range = builtins.match "([A-Za-z]{3})\\.\\.([A-Za-z]{3})" item;
+        in
+        if range != null then
+          if weekdays ? ${builtins.head range} && weekdays ? ${lib.last range} then
+            "${weekdays.${builtins.head range}}-${weekdays.${lib.last range}}"
+          else
+            null
+        else
+          weekdays.${item} or null
+      ) (splitString "," text);
+    in
+    if any (item: item == null) items then null else concatStringsSep "," items;
+
+  calendar =
+    expression:
+    let
+      tokens = filter (token: token != "") (splitString " " (lib.trim expression));
+      days = filter (token: builtins.match "[A-Za-z,.]+" token != null) tokens;
+      dates = filter (token: builtins.match "[^:]*-[^:]*-[^:]*" token != null) tokens;
+      times = filter (token: hasInfix ":" token) tokens;
+      date = if dates == [ ] then null else splitString "-" (builtins.head dates);
+      time = if times == [ ] then null else splitString ":" (builtins.head times);
+      parts = [
+        (if time == null then "0" else field (builtins.elemAt time 1))
+        (if time == null then "0" else field (builtins.head time))
+        (if date == null then "*" else field (builtins.elemAt date 2))
+        (if date == null then "*" else field (builtins.elemAt date 1))
+        (if days == [ ] then "*" else weekday (builtins.head days))
+      ];
+      wellFormed =
+        tokens != [ ]
+        && builtins.length days <= 1
+        && builtins.length dates <= 1
+        && builtins.length times <= 1
+        && builtins.length (days ++ dates ++ times) == builtins.length tokens
+        && (date == null || (builtins.length date == 3 && builtins.head date == "*"))
+        && (
+          time == null
+          || builtins.length time == 2
+          || (
+            builtins.length time == 3
+            && elem (builtins.elemAt time 2) [
+              "0"
+              "00"
+            ]
+          )
+        );
+    in
+    if shorthands ? ${lib.trim expression} then
+      shorthands.${lib.trim expression}
+    else if !wellFormed || any (part: part == null) parts then
+      null
+    else
+      concatStringsSep " " parts;
+
+  schedulesOf =
+    name:
+    let
+      timer = systemd.timers.${name}.timerConfig;
+      expressions = builtins.foldl' (
+        kept: line: if toString line == "" then [ ] else kept ++ [ (toString line) ]
+      ) [ ] (list (timer.OnCalendar or [ ]));
+    in
+    {
+      inherit expressions;
+      schedules = map calendar expressions;
+      other = filter (directive: hasPrefix "On" directive && directive != "OnCalendar") (attrNames timer);
+    };
+
+  timed = name: systemd.timers ? ${name} && systemd.timers.${name}.wantedBy != [ ];
+
   translate =
     name:
     let
@@ -280,7 +408,15 @@ let
         ++ optional (
           unit.postStart != "" || settings ? ExecStartPost
         ) "postStart and ExecStartPost are not supported"
-        ++ map (other: "it requires ${other}, which is not listed in nixos.services") foreign;
+        ++ map (other: "it requires ${other}, which is not listed in nixos.services") foreign
+        ++ optionals' (timed name) (
+          optional (!oneshot) "it is started by a timer but is not Type=oneshot"
+          ++ map (directive: "the timer directive ${directive} is not supported") (schedulesOf name).other
+          ++ optional ((schedulesOf name).expressions == [ ]) "its timer has no OnCalendar"
+          ++ map (expression: "OnCalendar=${expression} cannot be expressed as a crontab line") (
+            filter (expression: calendar expression == null) (schedulesOf name).expressions
+          )
+        );
     in
     {
       inherit problems user;
@@ -289,6 +425,7 @@ let
       );
 
       service = {
+        autoStart = !timed name;
         type = if oneshot then "oneshot" else "longrun";
         dependencies = siblings;
         inherit user group;
@@ -413,6 +550,19 @@ in
 
     s6.services = lib.mapAttrs (_: unit: unit.service) (
       filterAttrs (name: unit: systemd.services ? ${name} && unit.problems == [ ]) translated
+    );
+
+    cron.jobs = listToAttrs (
+      concatMap (
+        name:
+        lib.imap0 (
+          index: schedule:
+          nameValuePair "nixos-${name}-${toString index}" {
+            inherit schedule;
+            command = config.s6.runOneshot name;
+          }
+        ) (schedulesOf name).schedules
+      ) (filter (name: timed name && translated.${name}.problems == [ ]) (attrNames translated))
     );
 
     users.users = genAttrs accounts (

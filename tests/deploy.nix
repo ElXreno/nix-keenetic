@@ -41,8 +41,18 @@ let
   second = system "second" {
     system.keepGenerations = 1;
     users.users.web = { };
-    nixos.configuration.services.vnstat.enable = true;
-    nixos.services = [ "vnstat" ];
+    nixos.configuration = {
+      services.vnstat.enable = true;
+      systemd.services.stamp = {
+        startAt = "minutely";
+        serviceConfig.Type = "oneshot";
+        script = "date >> /tmp/stamp";
+      };
+    };
+    nixos.services = [
+      "vnstat"
+      "stamp"
+    ];
     s6.services = {
       ticker.environment.VALUE = "2";
       prepare = {
@@ -171,6 +181,13 @@ runCommand "keenetic-deploy-check-${kernel}"
     [ "$(generations)" = 1 ] || fail "old generations were not removed"
 
     [ "$(remote 'echo $SSL_CERT_FILE')" = /etc/ssl/certs/ca-certificates.crt ] || fail "a remote command did not get the profile"
+
+    attempts=75
+    until [ "$(remote 'cat /tmp/stamp 2>/dev/null' | grep -c .)" -ge 2 ]; do
+      attempts=$((attempts - 1))
+      [ "$attempts" -gt 0 ] || fail "the service started by a timer did not run twice"
+      sleep 2
+    done
 
     control 'hook netfilter table=filter'
     [ "$(remote cat /tmp/hook.log)" = "hook filter" ] || fail "the netfilter hook did not run"

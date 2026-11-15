@@ -259,7 +259,7 @@ let
       map (name: {
         name = "contents.d/${name}";
         value = "";
-      }) (attrNames services)
+      }) (attrNames (filterAttrs (_: service: service.autoStart) services))
     );
   };
 
@@ -332,6 +332,12 @@ in
               ];
               default = "longrun";
               description = "Whether this is a supervised process (`longrun`) or a task that runs once when the service is brought up (`oneshot`).";
+            };
+
+            autoStart = mkOption {
+              type = types.bool;
+              default = true;
+              description = "Whether the service is brought up with the system. A oneshot that is not can be run on a schedule, see `s6.runOneshot`.";
             };
 
             dependencies = mkOption {
@@ -447,6 +453,16 @@ in
         }
       );
     };
+  };
+
+  options.s6.runOneshot = mkOption {
+    type = types.functionTo types.str;
+    readOnly = true;
+    default =
+      name:
+      "${s6-rc}/bin/s6-rc -b -l ${liveDirectory} -d -t 60000 change ${name} && ${s6-rc}/bin/s6-rc -b -l ${liveDirectory} -u change ${name}";
+    defaultText = lib.literalMD "a command that brings the oneshot down and up again";
+    description = "Function from the name of a oneshot to the shell command that runs it once more, for use in `cron.jobs`.";
   };
 
   config = mkIf (services != { }) {
