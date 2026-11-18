@@ -26,6 +26,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # v31.11.5
       - uses: Mic92/hestia@dfed9ced335d28978ba74e513939a10db1f71025 # v3.1.0
+        with:
+          read-only: ${{ github.event_name == 'pull_request' }}
       - id: matrix
         uses: Mic92/hestia/matrix@dfed9ced335d28978ba74e513939a10db1f71025 # v3.1.0
         with:
@@ -47,6 +49,7 @@ jobs:
       - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - uses: Mic92/hestia@dfed9ced335d28978ba74e513939a10db1f71025 # v3.1.0
         with:
+          read-only: ${{ github.event_name == 'pull_request' }}
           wait-manifest-version: ${{ needs.eval.outputs.manifest-version }}
       - name: Prefetch the derivation closure
         run: '"$HESTIA_BIN" prefetch ${{ matrix.installables }}'
