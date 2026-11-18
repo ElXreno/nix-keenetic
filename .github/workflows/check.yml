@@ -44,6 +44,8 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.eval.outputs.matrix) }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: github.event_name == 'pull_request'
       - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # v31.11.5
       # from NixOS/nix ci.yml, see https://github.com/NixOS/nix/commit/1c63dc254d
       - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
@@ -52,5 +54,7 @@ jobs:
           read-only: ${{ github.event_name == 'pull_request' }}
           wait-manifest-version: ${{ needs.eval.outputs.manifest-version }}
       - name: Prefetch the derivation closure
+        if: github.event_name != 'pull_request'
         run: '"$HESTIA_BIN" prefetch ${{ matrix.installables }}'
-      - run: nix build -L ${{ matrix.installables }}
+      - name: Build
+        run: nix build -L ${{ github.event_name == 'pull_request' && format('.#checks.x86_64-linux.{0}', matrix.attr) || matrix.installables }}
